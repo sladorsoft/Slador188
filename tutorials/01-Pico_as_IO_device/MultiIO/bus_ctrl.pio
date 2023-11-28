@@ -1,0 +1,97 @@
+.program bus_ctrl
+.side_set 1 opt
+
+.define public ALE_PIN 2
+.define public CS_PIN 3
+.define public WR_PIN 6
+.define public RD_PIN 7
+.define public DATA_BUS_PINS 8
+.define public READY_PIN 20
+.define public INT_PIN 21
+
+; SIDESET for READY: 0: ready, 1: wait
+; OUT for DATA_BUS
+; IN for all pins 6 - 15
+
+
+.wrap_target
+idle:
+    wait 0 gpio CS_PIN  ; wait until CS gets active
+    jmp pin ale_active  ; jump if ALE active
+
+check_wr:
+    jmp !y idle         ; if Y == 0 (happens only before ALE was active) then loop back
+    mov osr, pins       ; load OSR with GPIO pins state
+    out x, 1            ; shif out (load) WR
+    jmp x-- check_rd    ; if WR inactive, check RD
+
+; WR active
+    nop [7]             ; let the data to settle on the bus
+    in pins, 10         ; save the VALUE
+    push                ; push ADDR + VAL
+    irq 0               ; raise the interrupt
+    wait 0 irq 0        ; wait until it's handled
+    jmp reset_bus       ; reset everything and go idle
+
+ale_active:
+    mov y, pins side 1  ; store current state of pins (never 0) (NOT READY)
+    in y, 10            ; save WR, RD and 8 bits of DATA bus in ISR
+    jmp idle            ; loop back
+
+check_rd:
+    out x, 1            ; shif out (load) RD
+    jmp x-- idle        ; if RD inactive, loop back
+
+; RD active
+    push                ; push ADDR
+    irq 1               ; raise the interrupt
+    mov osr, !null      ; fill up OSR with "1"s
+    out pindirs, 8      ; set DATA bus as outputs
+
+    pull block          ; wait and receive DATA from the CPU
+    out pins, 8 side 0  ; set the VALUE on the DATA bus (signal READY to 80188)
+
+rd_active:
+    mov osr, pins       ; read the pins
+    out null, 1         ; ignore the WR state
+    out x, 1            ; shif out (load) RD
+    jmp !x rd_active    ; loop back if still active
+
+reset_bus:
+    set y, 0 side 0     ; clear the Y (signal READY to 80188)
+    mov osr, null       ; fill up OSR with "0"s
+    out pindirs, 8      ; set data bus as inputs
+.wrap
+
+
+% c-sdk {
+
+void bus_ctrl_program_init(PIO pio, uint sm, uint offset)
+{
+    pio_sm_config cfg = bus_ctrl_program_get_default_config(offset);
+    sm_config_set_in_shift(&cfg, false, false, 32);
+    sm_config_set_out_shift(&cfg, true, false, 32);
+
+    sm_config_set_in_pins(&cfg, bus_ctrl_WR_PIN);
+    sm_config_set_out_pins(&cfg, bus_ctrl_DATA_BUS_PINS, 8);
+    sm_config_set_sideset_pins(&cfg, bus_ctrl_READY_PIN);
+    sm_config_set_jmp_pin(&cfg, bus_ctrl_ALE_PIN);
+
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS);
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS + 1);
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS + 2);
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS + 3);
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS + 4);
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS + 5);
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS + 6);
+    pio_gpio_init(pio, bus_ctrl_DATA_BUS_PINS + 7);
+    pio_gpio_init(pio, bus_ctrl_READY_PIN);
+
+    gpio_put(bus_ctrl_READY_PIN, false);
+
+    pio_sm_set_consecutive_pindirs(pio, sm, bus_ctrl_DATA_BUS_PINS, 8, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, bus_ctrl_READY_PIN, 1, true);
+
+    pio_sm_init(pio, sm, offset, &cfg);
+}
+%}
