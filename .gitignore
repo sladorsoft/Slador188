@@ -1,2 +1,3 @@
 /src/**/build/
+/tutorials/**/doc/
 /tutorials/**/build/

@@ -5,14 +5,9 @@
 #include "hardware/dma.h"
 
 
-namespace config
-{
-    static const PIO BusCtrlPIO = pio0;
-    static const uint BusCtrlSM = 0;
-
-    static const uint WriteIRQ = PIO0_IRQ_0;
-    static const uint ReadIRQ = PIO0_IRQ_1;
-
-    static const uint LEDPin = 22;
-    static const uint INTPin = 21;
-};
+#define CONFIG_BUS_CTRL_PIO     pio0
+#define CONFIG_BUS_CTRL_SM      0
+#define CONFIG_WRITE_IRQ        PIO0_IRQ_0
+#define CONFIG_READ_IRQ         PIO0_IRQ_1
+#define CONFIG_LED_PIN          22
+#define CONFIG_INT_PIN          21
